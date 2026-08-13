@@ -1,0 +1,27 @@
+{
+  "name": "jpath",
+  "version": "1.0.0",
+  "description": "零依赖 JSON 路径查询 + 树打印 + 拍平过滤 CLI（jq 轻量替代，点路径零 DSL）",
+  "bin": {
+    "jpath": "index.js"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test.js",
+    "start": "node index.js"
+  },
+  "keywords": [
+    "json",
+    "jq",
+    "cli",
+    "query",
+    "tree",
+    "flatten",
+    "gron",
+    "zero-dependency"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  }
+}
