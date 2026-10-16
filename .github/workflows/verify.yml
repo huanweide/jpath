@@ -1,0 +1,59 @@
+name: verify
+on:
+  push:
+    branches: [master]
+  pull_request:
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: 单元测试（零依赖，无需 npm install）
+        run: node --test test.js
+      - name: CLI 冒烟（退出码契约 + 静默错数据防线）
+        run: node scripts/smoke-cli.js
+      - name: 零依赖自证
+        shell: bash
+        run: |
+          if [ -d node_modules ]; then echo "::error::出现 node_modules，零依赖声明被打破"; exit 1; fi
+          echo "零依赖 OK"
+      - name: engines 声明必须与测试运行器匹配
+        shell: bash
+        run: |
+          # `node --test` 自 Node 18 引入。若 engines 声明低于 18 而 test 脚本
+          # 依赖 node --test，用户在 Node 14/16 上装完就跑不了测试（本次已实测踩到）。
+          major=$(node -p "parseInt(require('./package.json').engines.node.replace(/[^0-9]/g,''),10)")
+          if [ "$major" -lt 18 ] && grep -q 'node --test' package.json; then
+            echo "::error::engines 声明 Node $major，但 package.json 的 test 依赖 node --test（需 >=18）"; exit 1
+          fi
+          if ! grep -q "node-%3E%3D$major-brightgreen" README.md; then
+            echo "::error::README 的 Node 版本 badge 与 package.json engines 不一致"; exit 1
+          fi
+          echo "engines 与测试运行器一致（Node $major）"
+      - name: README 与实际行为一致
+        shell: bash
+        run: |
+          # npm 上的 jpath 是别人的包（artjock/jpath），README 不得在可执行示例里
+          # 教用户 `npm i -g jpath` / `npx jpath`——那会装错东西并抢占同名命令。
+          if awk '/^```bash/{b=1;next} /^```/{b=0} b' README.md \
+             | grep -nE '(^|[|;&(] *)(npm i(nstall)? -g jpath|npx jpath)'; then
+            echo "::error::README 仍在教用户安装 npm 上别人的同名包"; exit 1
+          fi
+          # README 列出的每个长选项都必须在源码里真实存在
+          # 豁免：--stin/--bogus 是刻意反例；--check/--test 指 Node 自身的命令行
+          missing=0
+          for opt in $(grep -oE '\-\-[a-z][a-z-]+' README.md | sort -u); do
+            case "$opt" in --stin|--bogus|--check|--test) continue;; esac
+            if ! grep -q -- "'$opt'" index.js; then
+              echo "::error::README 提到 $opt 但 index.js 未实现"; missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] && echo "README 选项全部可实现"
