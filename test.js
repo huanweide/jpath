@@ -211,3 +211,67 @@ test('CLI: 读取真实文件', () => {
     fs.unlinkSync(f);
   }
 });
+
+// ---- 参数契约（纯函数层；进程级行为由 scripts/smoke-cli.js 覆盖）----
+const usage = (argv) => {
+  try { jp.parseArgs(argv); return null; }
+  catch (e) { assert.ok(e instanceof jp.UsageError, '应为 UsageError，实际 ' + e.name); return e.message; }
+};
+
+test('parseArgs: 数值参数要求非负整数', () => {
+  assert.match(usage(['--tree', '--max-depth', 'abc']), /非负整数/);
+  assert.match(usage(['--tree', '--max-depth', '-3']), /非负整数/);
+  assert.match(usage(['--tree', '--max-depth', '1.5']), /非负整数/);
+  assert.match(usage(['--tree', '--max-depth=abc']), /非负整数/);
+  assert.match(usage(['x', '--json', '--indent', 'abc']), /非负整数/);
+  assert.match(usage(['x', '--json', '-i', 'abc']), /非负整数/);
+  // 合法值不受影响（注意：--max-depth 0 的既有语义是「不限深度」，会归一为 Infinity）
+  assert.equal(jp.parseArgs(['--tree', '--max-depth', '0']).maxDepth, Infinity);
+  assert.equal(jp.parseArgs(['--tree', '--max-depth', '3']).maxDepth, 3);
+  assert.equal(jp.parseArgs(['x', '--json', '--indent', '4']).indent, 4);
+});
+
+test('parseArgs: 选项缺取值报 UsageError', () => {
+  assert.match(usage(['--tree', '--max-depth']), /缺少取值/);
+  assert.match(usage(['x', '--indent']), /缺少取值/);
+  assert.match(usage(['x', '--json', '-i']), /缺少取值/);
+  assert.match(usage(['x', '--flatten', '--grep']), /缺少取值/);
+  assert.match(usage(['x', 'a.b', '--default']), /缺少取值/);
+  // 下个 token 本身就是选项时也必须报错，不能把 --tree 当成 --grep 的值
+  assert.match(usage(['x', '--flatten', '--grep', '--tree']), /缺少取值/);
+});
+
+test('parseArgs: 未知选项（含短选项）报 UsageError', () => {
+  assert.match(usage(['x', '-x']), /未知选项/);
+  assert.match(usage(['x', '--bogus']), /未知选项/);
+  // 连字符是 stdin 约定，不是未知选项
+  assert.doesNotThrow(() => jp.parseArgs(['-']));
+  assert.doesNotThrow(() => jp.parseArgs(['-', 'a.b']));
+});
+
+test('parseArgs: --ungron 不被 --grep 的自动 flatten 覆盖', () => {
+  const a = jp.parseArgs(['f.json', '--grep', 'x', '--ungron']);
+  assert.equal(a.mode, 'ungron');
+  assert.equal(a.ungronRequested, true);
+  // 没有 --ungron 时 grep 才自动切 flatten
+  assert.equal(jp.parseArgs(['f.json', '--grep', 'x']).mode, 'flatten');
+  // 显式 --flatten --ungron 的顺序：后写的 ungron 生效
+  assert.equal(jp.parseArgs(['f.json', '--flatten', '--ungron']).mode, 'ungron');
+  assert.equal(jp.parseArgs(['f.json', '--ungron', '--tree']).mode, 'tree');
+});
+
+test('parseArgs: 查询模式省略文件名时单参数视为路径', () => {
+  const a = jp.parseArgs(['user.name']);
+  assert.equal(a.file, '-');
+  assert.equal(a.path, 'user.name');
+});
+
+test('ungron: 空结果不得产出 undefined 字面量', () => {
+  // ungron 对空数组返回 undefined，JSON.stringify(undefined) 也是 undefined
+  assert.equal(jp.ungron([]), undefined);
+  assert.doesNotThrow(() => jp.ungron([]));
+});
+
+test('契约: UsageError 是 Error 子类且被导出', () => {
+  assert.ok(new jp.UsageError('x') instanceof Error);
+});

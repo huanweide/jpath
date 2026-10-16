@@ -122,6 +122,16 @@ function setAt(target, segs, value) {
   }
 }
 
+// 空结果必须显式报错。JSON.stringify(undefined) === undefined（不是字符串），
+// 直接写出会得到「undefined」字面量 + 退出码 0，属于最典型的静默错数据。
+function stringifyUngron(root, indent) {
+  const s = JSON.stringify(root, null, indent);
+  if (s === undefined) {
+    throw new Error('重组结果为空：过滤后没有任何匹配的 path = value 行');
+  }
+  return s;
+}
+
 function ungron(lines) {
   let root = null;
   let rootType = null;
@@ -221,7 +231,7 @@ function stats(node) {
 // ---------- 输入读取 ----------
 function readInput(fileArg, opts) {
   let raw;
-  const fromStdin = fileArg === '-' || (fileArg === undefined && !process.stdin.isTTY);
+  const fromStdin = fileArg == null || fileArg === '-';
   if (fromStdin) {
     try {
       raw = fs.readFileSync(0, 'utf8');
@@ -239,7 +249,12 @@ function readInput(fileArg, opts) {
     }
     raw = fs.readFileSync(fp, 'utf8');
   } else {
-    throw new Error('未提供输入文件，也未从 stdin 读取');
+    // 没给文件、stdin 也没内容（CI / 计划任务里常见）→ 这是用法错误，退 2 而不是运行错误。
+    // 原实现抛普通 Error 退 1，报的还是「未提供输入文件」这种含糊措辞。
+    throw new UsageError('缺少输入：请给出 JSON 文件路径，或用 - 指定从 stdin 读取');
+  }
+  if (!raw.trim() && fromStdin) {
+    throw new UsageError('stdin 没有读到任何内容：请提供 JSON 文件路径，或用管道喂入数据');
   }
   return raw;
 }
@@ -269,6 +284,28 @@ function parseJsonInput(raw) {
 }
 
 // ---------- 参数解析 ----------
+/** 参数用法错误：应退 2（区别于运行期错误退 1） */
+class UsageError extends Error {}
+
+/** `--opt=值` 形式的数值校验 */
+function intOrThrow(name, raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+    throw new UsageError(`${name} 需要非负整数，收到：${raw}`);
+  }
+  return n;
+}
+
+/**
+ * 模式切换：后写的 --ungron/--flatten 必须能覆盖先写的 --tree/--stats。
+ * 原实现直接赋 opts.mode，导致 `--flatten --grep --ungron` 被 grep 逻辑改回
+ * flatten，最终对拍平文本走查询路径 → 打印 undefined 且退出码 0（静默错数据）。
+ */
+function setMode(opts, m) {
+  opts.mode = m;
+  if (m === 'ungron') opts.ungronRequested = true;
+}
+
 function parseArgs(argv) {
   const opts = {
     mode: 'query',
@@ -286,7 +323,22 @@ function parseArgs(argv) {
     hasDefault: false,
   };
   const positionals = [];
-  for (let i = 0; i < argv.length; i++) {
+  let i = -1;
+  // 取下一个值：缺失时报错。负数不是选项（要留给数值校验去报更准确的错）。
+  const need = (name) => {
+    const v = argv[i + 1];
+    if (v === undefined || (typeof v === 'string' && v.startsWith('-') && !/^-?\d/.test(v) && v !== '-')) {
+      throw new UsageError(`选项 ${name} 缺少取值`);
+    }
+    i++;
+    return v;
+  };
+  // 数值参数：必须是有限非负整数，否则报错（--max-depth abc 曾让整棵树静默消失）
+  const needInt = (name) => {
+    const raw = need(name);
+    return intOrThrow(name, raw);
+  };
+  for (i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') { opts.help = true; continue; }
     if (a === '--version' || a === '-v') { opts.version = true; continue; }
@@ -294,31 +346,42 @@ function parseArgs(argv) {
     if (a === '-c' || a === '--color') { opts.color = true; continue; }
     if (a === '-r' || a === '--raw') { opts.raw = true; continue; }
     if (a === '-j' || a === '--json') { opts.json = true; continue; }
-    if (a === '--tree') { opts.mode = 'tree'; continue; }
-    if (a === '--flatten') { opts.mode = 'flatten'; continue; }
-    if (a === '--stats') { opts.mode = 'stats'; continue; }
-    if (a === '--ungron') { opts.mode = 'ungron'; continue; }
-    if (a === '--max-depth') { opts.maxDepth = Number(argv[++i]); continue; }
-    if (a === '--indent') { opts.indent = Number(argv[++i]); continue; }
-    if (a === '--grep') { opts.grep = argv[++i]; continue; }
-    if (a === '--default') { opts.default = argv[++i]; opts.hasDefault = true; continue; }
+    if (a === '-i') { opts.indent = needInt('-i'); continue; }
+    if (a === '--tree') { setMode(opts, 'tree'); continue; }
+    if (a === '--flatten') { setMode(opts, 'flatten'); continue; }
+    if (a === '--stats') { setMode(opts, 'stats'); continue; }
+    if (a === '--ungron') { setMode(opts, 'ungron'); continue; }
+    if (a === '--max-depth') { opts.maxDepth = needInt('--max-depth'); continue; }
+    if (a === '--indent') { opts.indent = needInt('--indent'); continue; }
+    if (a === '--grep') { opts.grep = need('--grep'); continue; }
+    if (a === '--default') { opts.default = need('--default'); opts.hasDefault = true; continue; }
     if (a.startsWith('--') && a.includes('=')) {
       const eq = a.indexOf('=');
       const k = a.slice(0, eq), v = a.slice(eq + 1);
-      if (k === '--max-depth') { opts.maxDepth = Number(v); continue; }
-      if (k === '--indent') { opts.indent = Number(v); continue; }
+      if (k === '--max-depth') { opts.maxDepth = intOrThrow(k, v); continue; }
+      if (k === '--indent') { opts.indent = intOrThrow(k, v); continue; }
       if (k === '--grep') { opts.grep = v; continue; }
       if (k === '--default') { opts.default = v; opts.hasDefault = true; continue; }
     }
-    if (a.startsWith('--')) {
-      throw new Error('未知选项：' + a + '（用 --help 查看用法）');
+    if (a.startsWith('-') && a !== '-') {
+      throw new UsageError('未知选项：' + a + '（用 --help 查看用法）');
     }
     positionals.push(a);
   }
-  // 位置参数：第一个是文件（或 -），第二个是路径
-  if (positionals.length >= 1) opts.file = positionals[0];
-  if (positionals.length >= 2) opts.path = positionals[1];
-  if (opts.grep && opts.mode === 'query') opts.mode = 'flatten'; // grep 自动走拍平
+  // 位置参数：第一个是文件（或 -），第二个是路径。
+  // 支持省略文件名的写法 `cat a.json | jpath user.name`：仅在查询模式下、
+  // 只有一个位置参数、它不是已存在的文件、且 stdin 有数据时，才当路径。
+  // （--tree/--flatten/--stats/--ungron 这些模式单参数必定是文件，否则会误判。）
+  const pathlessMode = opts.mode === 'query' && !opts.ungronRequested;
+  if (pathlessMode && positionals.length === 1 && !fs.existsSync(positionals[0]) && !process.stdin.isTTY) {
+    opts.file = '-';
+    opts.path = positionals[0];
+  } else {
+    if (positionals.length >= 1) opts.file = positionals[0];
+    if (positionals.length >= 2) opts.path = positionals[1];
+  }
+  // grep 在查询模式下自动走拍平；但用户显式要 --ungron 时必须尊重（否则会打印 undefined）
+  if (opts.grep && opts.mode === 'query' && !opts.ungronRequested) opts.mode = 'flatten';
   if (opts.maxDepth === 0) opts.maxDepth = Infinity;
   return opts;
 }
@@ -381,7 +444,8 @@ function main() {
     opts = parseArgs(process.argv.slice(2));
   } catch (e) {
     process.stderr.write('参数错误：' + e.message + '\n');
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
 
   const color = makeColor(opts.color);
@@ -392,8 +456,26 @@ function main() {
   try {
     if (opts.mode === 'ungron') {
       const raw = readInput(opts.file, opts);
-      const root = ungron(raw.split(/\r?\n/));
-      process.stdout.write(JSON.stringify(root, null, opts.indent) + '\n');
+      let root;
+      if (opts.grep) {
+        // 同进程「拍平+过滤+重组」：输入是原始 JSON 或拍平文本都要能处理。
+        // 原实现直接把原始 JSON 当拍平文本重组 → 打印 undefined 且退出码 0。
+        let lines;
+        const trimmed = raw.trim();
+        const looksLikeGron = /^\s*[\w$.[\]"]*\s*=/m.test(trimmed);
+        if (looksLikeGron) {
+          lines = trimmed.split(/\r?\n/).filter(Boolean);
+        } else {
+          const parsed = parseJsonInput(raw);
+          lines = flatten(parsed.data, '', []);
+        }
+        const pat = parseGrepPattern(opts.grep);
+        lines = lines.filter((l) => pat.test(l));
+        root = ungron(lines);
+      } else {
+        root = ungron(raw.split(/\r?\n/).filter(Boolean));
+      }
+      process.stdout.write(stringifyUngron(root, opts.indent) + '\n');
       return;
     }
 
@@ -431,12 +513,14 @@ function main() {
     // 默认：路径查询
     if (!opts.path) {
       process.stderr.write('查询模式需要提供 path 参数（或改用 --tree/--flatten/--stats）。\n');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
     const segs = parsePath(opts.path);
     if (segs.length === 0) {
       process.stderr.write('路径为空或非法：' + opts.path + '\n');
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
     if (Array.isArray(data)) {
       // JSONL / 数组：对每行/每项取值
@@ -451,8 +535,13 @@ function main() {
     const value = resolve(data, segs);
     process.stdout.write(formatQuery(value, opts, color) + '\n');
   } catch (e) {
+    if (e instanceof UsageError) {
+      process.stderr.write('参数错误：' + e.message + '\n');
+      process.exitCode = 2;
+      return;
+    }
     process.stderr.write(color.err('错误：' + e.message) + '\n');
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 
@@ -463,5 +552,5 @@ if (require.main === module) {
 
 module.exports = {
   parsePath, resolve, flatten, ungron, renderTree, stats, makeColor,
-  parseArgs, parseJsonInput, formatQuery, setAt, VERSION,
+  parseArgs, parseJsonInput, formatQuery, setAt, VERSION, UsageError,
 };
