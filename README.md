@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="assets/banner.svg" alt="jpath">
+</p>
+
+<p align="center">
+  <a href="#四问摘要">30 秒看懂</a> · <a href="#使用">用法</a> · <a href="#cli-参考">命令参考</a> · <a href="#安全与约束">安全边界</a> · <a href="#开发与测试">开发</a>
+</p>
+
 # jpath
 
 > 零依赖 JSON 路径查询 + 树打印 + 拍平过滤 CLI —— jq 的轻量替代，点路径零 DSL。
