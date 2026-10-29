@@ -184,7 +184,7 @@ npm run verify              # test + smoke
 
 ## 作者
 
-由 **ReTr · 樊斯瑞** 维护 · [GitHub 主页](https://github.com/huanweide)
+由 **ReTr · huanweide** 维护 · [GitHub 主页](https://github.com/huanweide)
 
 ---
 
@@ -211,9 +211,6 @@ jpath big.json --tree                              # -> 1（若输入不存在�
 本仓库自身的 CI（`.github/workflows/verify.yml`）跑的是：Node 18/20/22 × ubuntu/windows
 的单测 + CLI 冒烟 + 零依赖自证 + README 与实现一致性检查。
 
-## 赞助支持
-
-如果这个项目帮到了你，欢迎 [点 Star](https://github.com/huanweide/jpath) 支持；也可微信扫码自愿赞助（收款码见 `sponsor/wechat-qr.png`，作者本人带 Tri 水印的码，纯静态图片、不含任何密钥）。
 
 ## 许可证
 
