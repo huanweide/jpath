@@ -6,6 +6,8 @@
   <a href="#四问摘要">30 秒看懂</a> · <a href="#使用">用法</a> · <a href="#cli-参考">命令参考</a> · <a href="#安全与约束">安全边界</a> · <a href="#开发与测试">开发</a>
 </p>
 
+> English: 暂未提供
+
 # jpath
 
 > 零依赖 JSON 路径查询 + 树打印 + 拍平过滤 CLI —— jq 的轻量替代，点路径零 DSL。
@@ -38,7 +40,7 @@ npm 上的 `jpath` 是**另一个作者的包**（`artjock/jpath`，XPath 风格
 
 ```
 name = 'jpath'
-maintainers = 'artjock <artjock@gmail.com>'
+maintainers = 'artjock'
 repository = git://github.com/artjock/jpath.git
 ```
 
@@ -184,7 +186,7 @@ npm run verify              # test + smoke
 
 ## 作者
 
-由 **ReTr · huanweide** 维护 · [GitHub 主页](https://github.com/huanweide)
+由 **huanweide** 维护 · [GitHub 主页](https://github.com/huanweide)
 
 ---
 
