@@ -6,7 +6,7 @@
   <a href="#四问摘要">30 秒看懂</a> · <a href="#使用">用法</a> · <a href="#cli-参考">命令参考</a> · <a href="#安全与约束">安全边界</a> · <a href="#开发与测试">开发</a>
 </p>
 
-> English: 暂未提供
+> **English** · [README_EN.md](./README_EN.md)
 
 # jpath
 
